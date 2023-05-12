@@ -82,10 +82,9 @@ while 1:
     totalchars = totalchars+1
 
     if (len(ls) > 3 and ls[3]):
-        combin = int(ls[3])
-        if (combin):
+        if combin := int(ls[3]):
             combintable[val] = combin
-        
+
     if (len(ls) > 5 and ls[5]):
         decomp = ls[5]
         if not decomp.startswith('<'):
@@ -115,7 +114,7 @@ while 1:
     if (upcase != titlecase):
         titleablechars = titleablechars+1
         specialtable[val] = ([upcase], [downcase], [titlecase])
-        
+
     casetable[val] = (upcase, downcase, titlecase)
 
 while 1:
@@ -123,11 +122,10 @@ while 1:
     if (not ln):
         break
     if ln.startswith('# SpecialCasing'):
-        match = re.search('SpecialCasing-([0-9.]+).txt', ln)
-        if (match):
-            unicode_version = match.group(1)
+        if match := re.search('SpecialCasing-([0-9.]+).txt', ln):
+            unicode_version = match[1]
         continue
-    
+
     ln = ln.strip()
     pos = ln.find('#')
     if (pos >= 0):
@@ -143,7 +141,7 @@ while 1:
     if (len(ls) > 4 and ls[4]):
         # conditional case, ignore
         continue
-        
+
     totalspecialcases = totalspecialcases+1
 
     upcase = [ int(st, 16) for st in ls[3].split(' ') ]
@@ -156,7 +154,7 @@ while 1:
         downcasetable[val] = downcase
     if (titlecase != [val]):
         titlecasetable[val] = titlecase
-    
+
     speccase = ( upcase, downcase, titlecase )
 
     casetable[val] = (val, val, val) # placeholder
@@ -208,11 +206,14 @@ for (val, ls) in recdecomptable.items():
             compotable[head] = map
         map[ls[1]] = val
 
-max_decompose_length = max([ len(ls) for ls in decomptable.values() ])
+max_decompose_length = max(len(ls) for ls in decomptable.values())
 
 sys.stderr.write(str(totalchars) + ' characters in the Unicode database\n')
 sys.stderr.write(str(len(combintable)) + ' characters with combining classes\n')
-sys.stderr.write(str(len(decomptable)) + ' characters with decompositions (max length ' + str(max_decompose_length) + ')\n')
+sys.stderr.write(
+    f'{len(decomptable)} characters with decompositions (max length {str(max_decompose_length)}'
+    + ')\n'
+)
 sys.stderr.write(str(len(compotable)) + ' character compositions\n')
 sys.stderr.write(str(len(casetable)) + ' characters which can change case\n')
 sys.stderr.write(str(titleablechars) + ' characters with a distinct title-case\n')

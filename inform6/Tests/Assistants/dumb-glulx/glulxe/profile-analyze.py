@@ -236,10 +236,9 @@ else:
         print('File not readable:', game_file_data)
         sys.exit(1)
 
-if (opts.dispatchfile):
-    if (not os.path.exists(opts.dispatchfile)):
-        print('File not readable:', opts.dispatchfile)
-        sys.exit(1)
+if opts.dispatchfile and (not os.path.exists(opts.dispatchfile)):
+    print('File not readable:', opts.dispatchfile)
+    sys.exit(1)
 
 special_functions = {
     0xE0000001: 'streamchar',
@@ -264,51 +263,44 @@ class Function:
             if (not name):
                 name = hex(addr-0xF0000000)[2:]
                 name = '$' + name.replace('L', '')
-            self.name = '<@glk_' + name + '>'
+            self.name = f'<@glk_{name}>'
             self.special = True
         elif (val is None):
             self.name = '<???>'
             self.special = False
         else:
-            self.name = '<@' + val + '>'
+            self.name = f'<@{val}>'
             self.special = True
         self.linenum = 0
         self.call_count  =  int(attrs['call_count'])
         self.accel_count = 0
-        val = attrs.get('accel_count')
-        if (val):
+        if val := attrs.get('accel_count'):
             self.accel_count   = int(val)
         self.total_ops  =   int(attrs['total_ops'])
         self.total_time = float(attrs['total_time'])
         self.self_ops   =   int(attrs['self_ops'])
         self.self_time  = float(attrs['self_time'])
-        val = attrs.get('max_depth')
-        if (val):
+        if val := attrs.get('max_depth'):
             self.max_depth     = int(val)
-        val = attrs.get('max_stack_use')
-        if (val):
+        if val := attrs.get('max_stack_use'):
             self.max_stack_use = int(val)
         self.incalls = {}
         self.outcalls = {}
         
     def __repr__(self):
-        return '<Function $' + self.hexaddr + ' "' + self.name + '">'
+        return f'<Function ${self.hexaddr} "{self.name}">'
 
     def dump(self):
-        print('%s:' % (self.name,))
-        print('  %s' % (self.get_summary(),))
+        print(f'{self.name}:')
+        print(f'  {self.get_summary()}')
         print('  %.6f sec (%d ops) spent executing' % (self.self_time, self.self_ops))
         print('  %.6f sec (%d ops) including child calls' % (self.total_time, self.total_ops))
 
     def dump_dumbfrotz_style(self):
-        percent1 = '    '
-        percent2 = '    '
         pc1 = int(100*(float(self.self_ops)/float(ops_executed)))
         pc2 = int(100*(float(self.total_ops)/float(ops_executed)))
-        if (pc1 > 0):
-            percent1 = "%3d%%" % pc1
-        if (pc2 > 0):
-            percent2 = "%3d%%" % pc2
+        percent1 = "%3d%%" % pc1 if (pc1 > 0) else '    '
+        percent2 = "%3d%%" % pc2 if (pc2 > 0) else '    '
         print('%-36s %s %-10lu %s %-10lu %-10lu %-4d' % (self.name, percent1, self.self_ops, percent2, self.total_ops, self.call_count, self.max_depth))
 
     def get_summary(self):
@@ -323,16 +315,14 @@ class Function:
     def show_calls(self):
         if not callcounts:
             raise Exception('Profile data did not include call counts!')
-        print('%s:' % (self.name,))
-        print('  %s:' % (self.get_summary(),))
-        ls = list(self.incalls.items())
-        ls.sort()  # by addr
+        print(f'{self.name}:')
+        print(f'  {self.get_summary()}:')
+        ls = sorted(self.incalls.items())
         for (addr, count) in ls:
             func = functions.get(addr, '<???>')
             print('    %d from %s' % (count, func))
-        ls = list(self.outcalls.items())
-        ls.sort()  # by addr
-        val = sum([count for (addr, count) in ls])
+        ls = sorted(self.outcalls.items())
+        val = sum(count for (addr, count) in ls)
         print('  made %d calls to other functions:' % (val,))
         for (addr, count) in ls:
             func = functions.get(addr, '<???>')
@@ -407,10 +397,7 @@ class SimpleXMLFrame(xml.sax.handler.ContentHandler):
         assert len(self.sstack) == 0
         
     def startElement(self, name, attrs):
-        parframe = None
-        if self.sstack:
-            parframe = self.sstack[-1]
-            
+        parframe = self.sstack[-1] if self.sstack else None
         frame = SFrameFrame(name, attrs, len(self.sstack))
         self.sstack.append(frame)
 
@@ -432,22 +419,20 @@ class SimpleXMLFrame(xml.sax.handler.ContentHandler):
                 frame.handler = parhan
                 frame.accumchar = []
             else:
-                raise Exception('unknown element handler thingie: %s' % (parhan,))
-        else:
-            taghan = self.taghandlers.get(name)
-            if taghan:
-                active = taghan.active
-                if active:
-                    if taghan.parent is not None:
-                        if not (parframe and parframe.name == taghan.parent):
-                            active = False
-                    if taghan.depth is not None:
-                        if not (frame.depth == taghan.depth):
-                            active = False
-                if active:
-                    frame.handler = taghan
-                    frame.children = taghan.children
-                    frame.accumobj = {}
+                raise Exception(f'unknown element handler thingie: {parhan}')
+        elif taghan := self.taghandlers.get(name):
+            active = taghan.active
+            if active:
+                if taghan.parent is not None and (
+                    not parframe or parframe.name != taghan.parent
+                ):
+                    active = False
+                if taghan.depth is not None and frame.depth != taghan.depth:
+                    active = False
+            if active:
+                frame.handler = taghan
+                frame.children = taghan.children
+                frame.accumobj = {}
 
     def characters(self, data):
         frame = self.sstack[-1]
@@ -457,7 +442,7 @@ class SimpleXMLFrame(xml.sax.handler.ContentHandler):
     def endElement(self, name):
         frame = self.sstack.pop()
         assert frame.name == name
-        
+
         res = None
         if frame.handler is None:
             pass
@@ -475,16 +460,15 @@ class SimpleXMLFrame(xml.sax.handler.ContentHandler):
             val = ''.join(frame.accumchar)
             res = frame.handler(frame.name, frame.attrs, val)
         else:
-            raise Exception('unknown element handler thingie: %s' % (frame.handler,))
-        
+            raise Exception(f'unknown element handler thingie: {frame.handler}')
+
         frame.final()
-        
+
         if self.sstack and res is not None:
             parframe = self.sstack[-1]
             if parframe.accumobj is not None:
                 if type(parframe.children.get(name)) is list:
-                    subls = parframe.accumobj.get(name)
-                    if subls:
+                    if subls := parframe.accumobj.get(name):
                         subls.append(res)
                     else:
                         subls = [ res ]
@@ -635,10 +619,7 @@ class NewDebugHandler(SimpleXMLFrame):
     def handle_function(self, name, attrs, obj):
         (ident, artificial) = obj['identifier']
         args = obj.get('local-variable')
-        if not args:
-            args = ()
-        else:
-            args = tuple([ loc['identifier'] for loc in args ])
+        args = () if not args else tuple(loc['identifier'] for loc in args)
         func = NewDebugFunction(ident, obj['address'], args, obj.get('source-code-location'), artificial=artificial)
         self._debugfile.functions.append(func)
 
@@ -649,8 +630,7 @@ class NewDebugHandler(SimpleXMLFrame):
     def handle_source_code_loc(self, name, attrs, obj):
         fileref = obj.get('file-index')
         if fileref is not None:
-            srcfile = self._debugfile.sourcefiles.get(fileref)
-            if srcfile:
+            if srcfile := self._debugfile.sourcefiles.get(fileref):
                 fileref = srcfile
         return NewDebugSourceLoc(obj['line'], fileref)
 
@@ -690,7 +670,7 @@ class InformFunc:
         self.locals = None
         self.seqpts = None
     def __repr__(self):
-        return '<InformFunc $' + hex(self.addr)[2:] + ' ' + repr(self.name) + '>'
+        return f'<InformFunc ${hex(self.addr)[2:]} {repr(self.name)}>'
             
 class DebugFile:
     def __init__(self, fl):
@@ -707,12 +687,12 @@ class DebugFile:
         self.fake_actions = {}
         self.map = {}
         self.header = None
-        
+
         dat = fl.read(2)
         val = unpack('>H', dat)[0]
         if (val != 0xDEBF):
             raise ValueError('not an Inform debug file')
-            
+
         dat = fl.read(2)
         self.debugversion = unpack('>H', dat)[0]
         dat = fl.read(2)
@@ -740,11 +720,11 @@ class DebugFile:
             rectype = unpack('>B', dat)[0]
             if (rectype == 0):
                 break
-            recfunc = rectable.get(rectype)
-            if (not recfunc):
-                raise ValueError('unknown debug record type: %d' % (rectype,))
-            recfunc(fl)
+            if recfunc := rectable.get(rectype):
+                recfunc(fl)
 
+            else:
+                raise ValueError('unknown debug record type: %d' % (rectype,))
         for func in self.functions.values():
             self.function_names[func.name] = func
 
@@ -809,7 +789,7 @@ class DebugFile:
         dat = fl.read(2)
         funcnum = unpack('>H', dat)[0]
         func = self.get_function(funcnum)
-        
+
         func.linenum = self.read_linenum(fl)
         dat = fl.read(3)
         addr = unpack('>I', b'\0'+dat)[0]
@@ -817,10 +797,10 @@ class DebugFile:
         func.name = self.read_string(fl)
         locals = []
         while True:
-            val = self.read_string(fl)
-            if (not val):
+            if val := self.read_string(fl):
+                locals.append(val)
+            else:
                 break
-            locals.append(val)
         func.locals = locals
 
     def read_lineref_rec(self, fl):
@@ -830,10 +810,10 @@ class DebugFile:
 
         if (not func.seqpts):
             func.seqpts = []
-        
+
         dat = fl.read(2)
         count = unpack('>H', dat)[0]
-        for ix in range(count):
+        for _ in range(count):
             linenum = self.read_linenum(fl)
             dat = fl.read(2)
             addr = unpack('>H', dat)[0]
@@ -916,7 +896,7 @@ class BinaryRangeIO(io.RawIOBase):
         return newlen
 
 def typestring(dat):
-    return "'" + dat.decode() + "'"
+    return f"'{dat.decode()}'"
 
 class BlorbChunk:
     def __init__(self, formchunk, typ, start, len, formtype=None):
@@ -943,38 +923,37 @@ class BlorbChunk:
             return '%s/%s (%d+8 bytes, start %d)' % (typestring(self.type), typestring(self.formtype), self.len, self.start)
 
 def blorb_find_debug_chunk(filename):
-    file = open(filename, 'rb')
-    formchunk = Chunk(file)
-    formchunk = formchunk
+    with open(filename, 'rb') as file:
+        formchunk = Chunk(file)
+        formchunk = formchunk
 
-    if (formchunk.getname() != b'FORM'):
-        raise Exception('This does not appear to be a Blorb file.')
-    formtype = formchunk.read(4)
-    if (formtype != b'IFRS'):
-        raise Exception('This does not appear to be a Blorb file.')
+        if (formchunk.getname() != b'FORM'):
+            raise Exception('This does not appear to be a Blorb file.')
+        formtype = formchunk.read(4)
+        if (formtype != b'IFRS'):
+            raise Exception('This does not appear to be a Blorb file.')
 
-    chunks = []
-    debugchunk = None
-    
-    formlen = formchunk.getsize()
-    while formchunk.tell() < formlen:
-        chunk = Chunk(formchunk)
-        start = formchunk.tell()
-        size = chunk.getsize()
-        formtype = None
-        if chunk.getname() == b'FORM':
-            formtype = chunk.read(4)
-        subchunk = BlorbChunk(formchunk, chunk.getname(), start, size, formtype)
-        chunks.append(subchunk)
-        chunk.skip()
-        chunk.close()
+        chunks = []
+        debugchunk = None
 
-    for chunk in chunks:
-        if (chunk.type == b'Dbug'):
-            debugchunk = chunk
+        formlen = formchunk.getsize()
+        while formchunk.tell() < formlen:
+            chunk = Chunk(formchunk)
+            start = formchunk.tell()
+            size = chunk.getsize()
+            formtype = None
+            if chunk.getname() == b'FORM':
+                formtype = chunk.read(4)
+            subchunk = BlorbChunk(formchunk, chunk.getname(), start, size, formtype)
+            chunks.append(subchunk)
+            chunk.skip()
+            chunk.close()
 
-    formchunk.close()
-    file.close()
+        for chunk in chunks:
+            if (chunk.type == b'Dbug'):
+                debugchunk = chunk
+
+        formchunk.close()
     file = None
 
     return debugchunk
@@ -998,22 +977,20 @@ if (profile_raw):
 
 need_function_address_offset = False
 
-if (game_file_data):
-    # Fill out the sourcemap global, by one of various methods
-    fl = open(game_file_data, 'rb')
-    val = fl.read(2)
-    fl.close()
+if game_file_data:
+    with open(game_file_data, 'rb') as fl:
+        val = fl.read(2)
     if (not val):
         pass
     elif (val == b'\xde\xbf'):
         # Old-style Inform debug info.
         need_function_address_offset = True
-        fl = open(game_file_data, 'rb')
-        debugfile = DebugFile(fl)
-        fl.close()
-        sourcemap = {}
-        for func in debugfile.functions.values():
-            sourcemap[func.addr] = ( func.linenum[1], func.name )
+        with open(game_file_data, 'rb') as fl:
+            debugfile = DebugFile(fl)
+        sourcemap = {
+            func.addr: (func.linenum[1], func.name)
+            for func in debugfile.functions.values()
+        }
     elif (val == b'<?'):
         # New-style Inform debug info.
         han = NewDebugHandler()
@@ -1030,55 +1007,48 @@ if (game_file_data):
         debugchunk = blorb_find_debug_chunk(game_file_data)
         if not debugchunk:
             raise Exception('This Blorb file has no Dbug chunk.')
-        # Now we check the contents, which means repeating a
-        # bunch of the above code.
-        fl = open(game_file_data, 'rb')
-        fl.seek(debugchunk.start+8)
-        val = fl.read(2)
-        if (val == b'\xde\xbf'):
-            need_function_address_offset = True
-            subfl = BinaryRangeIO(fl, debugchunk.start+8, debugchunk.len)
-            debugfile = DebugFile(fl)
-            subfl.close()
-            sourcemap = {}
-            for func in debugfile.functions.values():
-                sourcemap[func.addr] = ( func.linenum[1], func.name )
-        elif (val == b'<?'):
-            subfl = BinaryRangeIO(fl, debugchunk.start+8, debugchunk.len)
-            han = NewDebugHandler()
-            xml.sax.parse(subfl, han)
-            subfl.close()
-            debugfile = han.debugfile()
-            sourcemap = {}
-            for func in debugfile.functions:
-                linenum = 0
-                if func.sourceloc and isinstance(func.sourceloc, NewDebugSourceLoc):
-                    linenum = func.sourceloc.line
-                sourcemap[func.address] = ( linenum, func.id )
-        else:
-            raise Exception('Blorb Dbug chunk was not recognized.')
-        fl.close()
+        with open(game_file_data, 'rb') as fl:
+            fl.seek(debugchunk.start+8)
+            val = fl.read(2)
+            if (val == b'\xde\xbf'):
+                need_function_address_offset = True
+                subfl = BinaryRangeIO(fl, debugchunk.start+8, debugchunk.len)
+                debugfile = DebugFile(fl)
+                subfl.close()
+                sourcemap = {
+                    func.addr: (func.linenum[1], func.name)
+                    for func in debugfile.functions.values()
+                }
+            elif (val == b'<?'):
+                subfl = BinaryRangeIO(fl, debugchunk.start+8, debugchunk.len)
+                han = NewDebugHandler()
+                xml.sax.parse(subfl, han)
+                subfl.close()
+                debugfile = han.debugfile()
+                sourcemap = {}
+                for func in debugfile.functions:
+                    linenum = 0
+                    if func.sourceloc and isinstance(func.sourceloc, NewDebugSourceLoc):
+                        linenum = func.sourceloc.line
+                    sourcemap[func.address] = ( linenum, func.id )
+            else:
+                raise Exception('Blorb Dbug chunk was not recognized.')
     else:
         # Assume it's an Inform assembly dump.
         need_function_address_offset = True
-        fl = open(game_file_data, 'rU')
-        parse_inform_assembly(fl)
-        fl.close()
-
-if (profile_raw):
+        with open(game_file_data, 'rU') as fl:
+            parse_inform_assembly(fl)
+if profile_raw:
     # If there is profile data, display it.
-    
-    source_start = min([ func.addr for func in functions.values()
-        if not func.special ])
+
+    source_start = min(
+        func.addr for func in functions.values() if not func.special
+    )
 
     # For old debug formats, all the function addresses are relative to
     # the start of function memory. For the new format, they're all
     # correct as-is.
-    if need_function_address_offset:
-        function_address_offset = source_start
-    else:
-        function_address_offset = 0
-    
+    function_address_offset = source_start if need_function_address_offset else 0
     if (not opts.dumbfrotz):
         print('Code segment begins at', hex(source_start))
         print(len(functions), 'called functions found in', profile_raw)
@@ -1091,10 +1061,10 @@ if (profile_raw):
             fromfunc.outcalls[toaddr] = count
         if (tofunc):
             tofunc.incalls[fromaddr] = count
-    
-    if (sourcemap):
+
+    if sourcemap:
         badls = []
-    
+
         for (addr, func) in functions.items():
             if (func.special):
                 continue
@@ -1105,26 +1075,22 @@ if (profile_raw):
             (linenum, funcname) = tup
             func.name = funcname
             func.linenum = linenum
-        
-        if (not opts.dumbfrotz):
-            if (badls):
-                print(len(badls), 'functions from', profile_raw, 'did not appear in asm (veneer functions)')
-        
-        function_names = {}
-        for func in functions.values():
-            function_names[func.name] = func
-    
+
+        if (not opts.dumbfrotz) and badls:
+            print(len(badls), 'functions from', profile_raw, 'did not appear in asm (veneer functions)')
+
+        function_names = {func.name: func for func in functions.values()}
     if (sourcemap):
         uncalled_funcs = [ funcname for (addr, (linenum, funcname)) in sourcemap.items() if (addr+function_address_offset) not in functions ]
         if (not opts.dumbfrotz):
             print(len(uncalled_funcs), 'functions found in', game_file_data, 'were never called')
-    
-    if (opts.dumbfrotz):
+
+    if opts.dumbfrotz:
         ls = functions.values()
         ls.sort(lambda x1, x2: cmp(x2.total_ops, x1.total_ops))
         ops_executed = 0
         routine_calls = 0
-        max_stack_use = max([func.max_stack_use for func in ls])
+        max_stack_use = max(func.max_stack_use for func in ls)
         for func in ls:
             if (func.total_ops > ops_executed):
                 ops_executed = func.total_ops
@@ -1139,7 +1105,7 @@ if (profile_raw):
     else:
         print('Functions that consumed the most time (excluding children):')
         ls = list(functions.values())
-        
+
         sortfunc = lambda fn:-fn.self_time
         if (opts.listsort in ('self_time', 'self-time', 'selftime')):
             sortfunc = lambda fn:-fn.self_time
@@ -1151,7 +1117,7 @@ if (profile_raw):
             sortfunc = lambda fn:-fn.total_ops
         elif (opts.listsort in ('call_count', 'call-count', 'callcount')):
             sortfunc = lambda fn:-fn.call_count
-            
+
         ls.sort(key=sortfunc)
-        for func in ls[0 : opts.listcount]:
+        for func in ls[:opts.listcount]:
             func.dump()
